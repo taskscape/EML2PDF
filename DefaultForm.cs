@@ -142,11 +142,13 @@ namespace EML2PDF6
                     {
                         if (!args.IsLoading)
                         {
-                            PdfPrintSettings printSettings = new PdfPrintSettings();
-                            printSettings.MarginTop = 100;   // 10mm
-                            printSettings.MarginLeft  = 100; // 10mm
-                            printSettings.PaperHeight = 29700; // A4
-                            printSettings.PaperWidth = 21000;  // A4
+                            PdfPrintSettings printSettings = new()
+                            {
+                                MarginTop = 100, // 10mm
+                                MarginLeft = 100, // 10mm
+                                PaperHeight = 29700, // A4
+                                PaperWidth = 21000 // A4
+                            };
 
                             bool success = await browser.PrintToPdfAsync(outputPath, printSettings);
                             if (success)
@@ -163,6 +165,7 @@ namespace EML2PDF6
                     //string base64EncodedHtml = Convert.ToBase64String(Encoding.UTF8.GetBytes(htmlContent));
                     //browser.Load("data:text/html;base64," + base64EncodedHtml);
                     browser.LoadHtml(htmlContent);
+
 
             }
             //};
