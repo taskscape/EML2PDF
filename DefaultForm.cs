@@ -11,12 +11,11 @@ namespace EML2PDF6
         public DefaultForm()
         {
             InitializeComponent();
-            var version = string.Format("Chromium: {0}, CEF: {1}, CefSharp: {2}",
-Cef.ChromiumVersion, Cef.CefVersion, Cef.CefSharpVersion);
+            string version = string.Format("Chromium: {0}, CEF: {1}, CefSharp: {2}", Cef.ChromiumVersion, Cef.CefVersion, Cef.CefSharpVersion);
 
-            var environment = string.Format("Environment: {0}, Runtime: {1}",
-    System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
-    System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription);
+            string environment = string.Format("Environment: {0}, Runtime: {1}",
+                System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
+                System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription);
 
             toolStripStatusLabel1.Text = version + " " + environment;
         }
@@ -30,8 +29,8 @@ Cef.ChromiumVersion, Cef.CefVersion, Cef.CefSharpVersion);
                 return;
             }
 
-            var errorHtml = string.Format("<html><body><h2>Failed to load URL {0} with error {1} ({2}).</h2></body></html>",
-                                              e.FailedUrl, e.ErrorText, e.ErrorCode);
+            string errorHtml =
+                $"<html><body><h2>Failed to load URL {e.FailedUrl} with error {e.ErrorText} ({e.ErrorCode}).</h2></body></html>";
 
             _ = e.Browser.SetMainFrameDocumentContentAsync(errorHtml);
 
@@ -42,11 +41,18 @@ Cef.ChromiumVersion, Cef.CefVersion, Cef.CefSharpVersion);
 
         private void toolStripButton1_Click(object sender, EventArgs e)
         {
+            // Ensure the cache directory exists
+            string cachePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EML2PDF\\Cache");
+            if (!Directory.Exists(cachePath))
+            {
+                Directory.CreateDirectory(cachePath);
+            }
+
             // Initialize CefSharp
-            var settings = new CefSettings
+            CefSettings settings = new()
             {
                 LogSeverity = LogSeverity.Disable, // Optional: Minimize logging
-                CachePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CefSharp\\Cache")
+                CachePath = cachePath // Set the cache path
             };
             Cef.Initialize(settings);
 
@@ -78,13 +84,13 @@ Cef.ChromiumVersion, Cef.CefVersion, Cef.CefSharpVersion);
         static string ParseEmlToHtml(string emlFilePath)
         {
             // Load the .eml file
-            var message = MimeMessage.Load(emlFilePath);
+            MimeMessage? message = MimeMessage.Load(emlFilePath);
 
             // Get the HTML body
-            var bodyPart = message.Body as TextPart;
+            TextPart? bodyPart = message.Body as TextPart;
             if (bodyPart == null && message.Body is Multipart multipart)
             {
-                foreach (var part in multipart)
+                foreach (MimeEntity? part in multipart)
                 {
                     if (part is TextPart textPart && textPart.IsHtml)
                     {
@@ -94,17 +100,20 @@ Cef.ChromiumVersion, Cef.CefVersion, Cef.CefSharpVersion);
                 }
             }
 
-            if (bodyPart == null) return null;
-
+            if (bodyPart == null)
+            {
+                Console.WriteLine("Failed to parse .eml file.");
+                return null;
+            }
             // Replace embedded images with data URIs
             string html = bodyPart.Text;
             if (message.Body is MultipartRelated multipartRelated)
             {
-                foreach (var attachment in multipartRelated)
+                foreach (MimeEntity? attachment in multipartRelated)
                 {
-                    if (attachment is MimePart imagePart && imagePart.IsAttachment)
+                    if (attachment is MimePart { IsAttachment: true } imagePart)
                     {
-                        using var stream = new MemoryStream();
+                        using MemoryStream stream = new();
                         imagePart.Content.DecodeTo(stream);
                         string base64Image = Convert.ToBase64String(stream.ToArray());
                         string contentId = imagePart.ContentId;
@@ -119,45 +128,39 @@ Cef.ChromiumVersion, Cef.CefVersion, Cef.CefSharpVersion);
 
         static void SaveHtmlToPdf(string htmlContent, string outputPath)
         {
-
-            using (var browser = new ChromiumWebBrowser("about:blank"))
+            using ChromiumWebBrowser browser = new("about:blank");
+            var initialised = browser.IsBrowserInitialized;
+            browser.IsBrowserInitializedChanged += (sender, e) =>
             {
-                // browser.CreateControl();
-
-
-                browser.IsBrowserInitializedChanged += (sender, e) =>
+                if (browser.IsBrowserInitialized)
                 {
-                    if (browser.IsBrowserInitialized)
+                    string base64EncodedHtml = Convert.ToBase64String(Encoding.UTF8.GetBytes(htmlContent));
+                    browser.Load("data:text/html;base64," + base64EncodedHtml);
+                    //browser.LoadHtml(htmlContent);
+
+                    browser.LoadingStateChanged += async (s, args) =>
                     {
-                        var base64EncodedHtml = Convert.ToBase64String(Encoding.UTF8.GetBytes(htmlContent));
-                        browser.Load("data:text/html;base64," + base64EncodedHtml);
-                        //browser.LoadHtml(htmlContent);
-
-                        browser.LoadingStateChanged += async (s, args) =>
+                        if (!args.IsLoading)
                         {
-                            if (!args.IsLoading)
+                            PdfPrintSettings printSettings = new PdfPrintSettings();
+                            printSettings.MarginTop = 100;   // 10mm
+                            printSettings.MarginLeft  = 100; // 10mm
+                            printSettings.PaperHeight = 29700; // A4
+                            printSettings.PaperWidth = 21000;  // A4
+
+                            bool success = await browser.PrintToPdfAsync(outputPath, printSettings);
+                            if (success)
                             {
-                                var printSettings = new PdfPrintSettings();
-                                printSettings.MarginTop = 100;   // 10mm
-                                printSettings.MarginLeft  = 100; // 10mm
-                                printSettings.PaperHeight = 29700; // A4
-                                printSettings.PaperWidth = 21000;  // A4
-
-                                var success = await browser.PrintToPdfAsync(outputPath, printSettings);
-                                if (success)
-                                {
-                                    Console.WriteLine($"PDF saved to {outputPath}");
-                                }
-                                else
-                                {
-                                    Console.WriteLine("Failed to save PDF.");
-                                }
+                                Console.WriteLine($"PDF saved to {outputPath}");
                             }
-                        };
-                    }
-                };
-            }
-
+                            else
+                            {
+                                Console.WriteLine("Failed to save PDF.");
+                            }
+                        }
+                    };
+                }
+            };
         }
 
     }
