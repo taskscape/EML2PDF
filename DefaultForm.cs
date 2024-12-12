@@ -56,6 +56,10 @@ namespace EML2PDF6
             };
             Cef.Initialize(settings);
 
+            // Create and add the browser to the form
+            using ChromiumWebBrowser browser = new("about:blank");
+            this.Controls.Add(browser); // Add browser to the form's controls
+
             // Prompt user to select an .eml file
             OpenFileDialog openFileDialog = new OpenFileDialog
             {
@@ -72,7 +76,8 @@ namespace EML2PDF6
 
                 if (!string.IsNullOrEmpty(htmlContent))
                 {
-                    SaveHtmlToPdf(htmlContent, "output.pdf");
+                    SaveHtmlToPdf(htmlContent, "output.pdf", browser);
+                    Console.WriteLine("Rendering .eml file to PDF completed");
                 }
                 else
                 {
@@ -92,7 +97,7 @@ namespace EML2PDF6
             {
                 foreach (MimeEntity? part in multipart)
                 {
-                    if (part is TextPart textPart && textPart.IsHtml)
+                    if (part is TextPart { IsHtml: true } textPart)
                     {
                         bodyPart = textPart;
                         break;
@@ -126,17 +131,12 @@ namespace EML2PDF6
             return html;
         }
 
-        static void SaveHtmlToPdf(string htmlContent, string outputPath)
+        static void SaveHtmlToPdf(string htmlContent, string outputPath, ChromiumWebBrowser browser)
         {
-            using ChromiumWebBrowser browser = new("about:blank");
-            var initialised = browser.IsBrowserInitialized;
-            browser.IsBrowserInitializedChanged += (sender, e) =>
-            {
+            //browser.IsBrowserInitializedChanged += async (s, args) =>
+            //{
                 if (browser.IsBrowserInitialized)
                 {
-                    string base64EncodedHtml = Convert.ToBase64String(Encoding.UTF8.GetBytes(htmlContent));
-                    browser.Load("data:text/html;base64," + base64EncodedHtml);
-                    //browser.LoadHtml(htmlContent);
 
                     browser.LoadingStateChanged += async (s, args) =>
                     {
@@ -159,8 +159,13 @@ namespace EML2PDF6
                             }
                         }
                     };
-                }
-            };
+
+                    //string base64EncodedHtml = Convert.ToBase64String(Encoding.UTF8.GetBytes(htmlContent));
+                    //browser.Load("data:text/html;base64," + base64EncodedHtml);
+                    browser.LoadHtml(htmlContent);
+
+            }
+            //};
         }
 
     }
