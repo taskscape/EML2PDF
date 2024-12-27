@@ -9,8 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="CefSharp.WinForms.NETCore" Version="131.3.10" />
     <PackageReference Include="MailKit" Version="4.9.0" />
+    <PackageReference Include="PuppeteerSharp" Version="20.0.5" />
   </ItemGroup>
 
 </Project>

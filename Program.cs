@@ -1,4 +1,4 @@
-namespace EML2PDF6
+namespace EML2PDF
 {
     internal static class Program
     {

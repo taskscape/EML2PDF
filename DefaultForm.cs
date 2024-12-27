@@ -1,65 +1,24 @@
-using CefSharp;
-using CefSharp.DevTools.Page;
-using CefSharp.WinForms;
-using MimeKit;
 using System.Text;
+using MimeKit;
+using PuppeteerSharp;
 
-namespace EML2PDF6
+namespace EML2PDF
 {
     public partial class DefaultForm : Form
     {
         public DefaultForm()
         {
             InitializeComponent();
-            string version = string.Format("Chromium: {0}, CEF: {1}, CefSharp: {2}", Cef.ChromiumVersion, Cef.CefVersion, Cef.CefSharpVersion);
 
             string environment = string.Format("Environment: {0}, Runtime: {1}",
                 System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
                 System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription);
-
-            toolStripStatusLabel1.Text = version + " " + environment;
+            
+            label1.Text =  environment;
         }
-
-        private void OnBrowserLoadError(object sender, LoadErrorEventArgs e)
-        {
-            //Actions that trigger a download will raise an aborted error.
-            //Aborted is generally safe to ignore
-            if (e.ErrorCode == CefErrorCode.Aborted)
-            {
-                return;
-            }
-
-            string errorHtml =
-                $"<html><body><h2>Failed to load URL {e.FailedUrl} with error {e.ErrorText} ({e.ErrorCode}).</h2></body></html>";
-
-            _ = e.Browser.SetMainFrameDocumentContentAsync(errorHtml);
-
-            //AddressChanged isn't called for failed Urls so we need to manually update the Url TextBox
-            toolStripStatusLabel1.Text = e.FailedUrl;
-        }
-
-
+        
         private void toolStripButton1_Click(object sender, EventArgs e)
         {
-            // Ensure the cache directory exists
-            string cachePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EML2PDF\\Cache");
-            if (!Directory.Exists(cachePath))
-            {
-                Directory.CreateDirectory(cachePath);
-            }
-
-            // Initialize CefSharp
-            CefSettings settings = new()
-            {
-                LogSeverity = LogSeverity.Disable, // Optional: Minimize logging
-                CachePath = cachePath // Set the cache path
-            };
-            Cef.Initialize(settings);
-
-            // Create and add the browser to the form
-            using ChromiumWebBrowser browser = new("about:blank");
-            this.Controls.Add(browser); // Add browser to the form's controls
-
             // Prompt user to select an .eml file
             OpenFileDialog openFileDialog = new OpenFileDialog
             {
@@ -76,7 +35,7 @@ namespace EML2PDF6
 
                 if (!string.IsNullOrEmpty(htmlContent))
                 {
-                    SaveHtmlToPdf(htmlContent, "output.pdf", browser);
+                    SaveHtmlToPdf(htmlContent, "output.pdf");
                     Console.WriteLine("Rendering .eml file to PDF completed");
                 }
                 else
@@ -88,88 +47,127 @@ namespace EML2PDF6
 
         static string ParseEmlToHtml(string emlFilePath)
         {
-            // Load the .eml file
-            MimeMessage? message = MimeMessage.Load(emlFilePath);
+            var message = MimeMessage.Load(emlFilePath);
+            string outputResourcesPath = "resources";
+            Directory.CreateDirectory(outputResourcesPath);
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
-            // Get the HTML body
-            TextPart? bodyPart = message.Body as TextPart;
-            if (bodyPart == null && message.Body is Multipart multipart)
+            // Access the HTML body or plain text body
+            var htmlPart = message.BodyParts.OfType<TextPart>()
+                .FirstOrDefault(bp => bp.ContentType.MediaSubtype == "html");
+
+            string htmlBody = string.Empty;
+
+            if (htmlPart != null)
             {
-                foreach (MimeEntity? part in multipart)
-                {
-                    if (part is TextPart { IsHtml: true } textPart)
-                    {
-                        bodyPart = textPart;
-                        break;
-                    }
-                }
-            }
+                // Decode the raw content of the HTML part
+                htmlBody = DecodeEmailBody(htmlPart);
 
-            if (bodyPart == null)
+                // Replace CID references with local file paths
+                htmlBody = ReplaceInlineImages(htmlBody, message.BodyParts, outputResourcesPath);
+            }
+            else
             {
-                Console.WriteLine("Failed to parse .eml file.");
-                return null;
+                // Fallback to plain text if no HTML body is present
+                var textPart = message.TextBody;
+                htmlBody = $"<pre>{DecodeEmailBody(message.TextBody, "utf-8")}</pre>";
             }
-            // Replace embedded images with data URIs
-            string html = bodyPart.Text;
-            if (message.Body is MultipartRelated multipartRelated)
-            {
-                foreach (MimeEntity? attachment in multipartRelated)
-                {
-                    if (attachment is MimePart { IsAttachment: true } imagePart)
-                    {
-                        using MemoryStream stream = new();
-                        imagePart.Content.DecodeTo(stream);
-                        string base64Image = Convert.ToBase64String(stream.ToArray());
-                        string contentId = imagePart.ContentId;
-
-                        html = html.Replace($"cid:{contentId}", $"data:{imagePart.ContentType.MimeType};base64,{base64Image}");
-                    }
-                }
-            }
-
-            return html;
+            
+            return htmlBody;
         }
 
-        static void SaveHtmlToPdf(string htmlContent, string outputPath, ChromiumWebBrowser browser)
+        private static async Task SaveHtmlToPdf(string htmlContent, string outputPath)
         {
-            //browser.IsBrowserInitializedChanged += async (s, args) =>
-            //{
-                if (browser.IsBrowserInitialized)
-                {
+            if (string.IsNullOrWhiteSpace(htmlContent))
+                throw new ArgumentException("HTML content cannot be null or empty.", nameof(htmlContent));
 
-                    browser.LoadingStateChanged += async (s, args) =>
-                    {
-                        if (!args.IsLoading)
-                        {
-                            PdfPrintSettings printSettings = new()
-                            {
-                                MarginTop = 100, // 10mm
-                                MarginLeft = 100, // 10mm
-                                PaperHeight = 29700, // A4
-                                PaperWidth = 21000 // A4
-                            };
+            if (string.IsNullOrWhiteSpace(outputPath))
+                throw new ArgumentException("Output path cannot be null or empty.", nameof(outputPath));
 
-                            bool success = await browser.PrintToPdfAsync(outputPath, printSettings);
-                            if (success)
-                            {
-                                Console.WriteLine($"PDF saved to {outputPath}");
-                            }
-                            else
-                            {
-                                Console.WriteLine("Failed to save PDF.");
-                            }
-                        }
-                    };
-
-                    //string base64EncodedHtml = Convert.ToBase64String(Encoding.UTF8.GetBytes(htmlContent));
-                    //browser.Load("data:text/html;base64," + base64EncodedHtml);
-                    browser.LoadHtml(htmlContent);
-
-
-            }
-            //};
+            await new BrowserFetcher().DownloadAsync();
+            await using var browser = await Puppeteer.LaunchAsync(new LaunchOptions { Headless = true });
+            await using var page = await browser.NewPageAsync();
+            await page.SetContentAsync(htmlContent);
+            await page.PdfAsync(outputPath);
+            await page.CloseAsync();
         }
 
+        static string DecodeEmailBody(TextPart textPart)
+        {
+            var charset = textPart.ContentType.Charset ?? "utf-8";
+
+            using var memoryStream = new MemoryStream();
+            textPart.Content.DecodeTo(memoryStream);
+            var rawBytes = memoryStream.ToArray();
+
+            try
+            {
+                var encoding = Encoding.GetEncoding(charset);
+                return encoding.GetString(rawBytes);
+            }
+            catch
+            {
+                Console.WriteLine($"Warning: Failed to decode using charset {charset}. Falling back to ISO-8859-1.");
+                return Encoding.GetEncoding("ISO-8859-1").GetString(rawBytes);
+            }
+        }
+
+        static string ReplaceInlineImages(string htmlBody, IEnumerable<MimeEntity> bodyParts, string resourcesPath)
+        {
+            // Ensure the resources folder exists
+            if (!Directory.Exists(resourcesPath))
+            {
+                Directory.CreateDirectory(resourcesPath);
+                Console.WriteLine($"Created resources folder: {resourcesPath}");
+            }
+
+            foreach (var part in bodyParts)
+            {
+                if (part is MimePart mimePart && mimePart.ContentDisposition?.Disposition == ContentDisposition.Inline)
+                {
+                    // Get the content ID and remove angle brackets if present
+                    string contentId = mimePart.ContentId?.Trim('<', '>');
+
+                    if (!string.IsNullOrEmpty(contentId))
+                    {
+                        // Generate a unique file name for the image
+                        string fileName = mimePart.FileName ?? Guid.NewGuid() + ".img";
+                        string filePath = Path.Combine(resourcesPath, fileName);
+
+                        // Save the image to the resources folder
+                        try
+                        {
+                            using (var fileStream = File.Create(filePath))
+                            {
+                                mimePart.Content.DecodeTo(fileStream);
+                            }
+                            Console.WriteLine($"Saved resource: {filePath}");
+
+                            // Replace the CID reference in the HTML with the local file path
+                            htmlBody = htmlBody.Replace($"cid:{contentId}", fileName);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Failed to save resource: {filePath}. Error: {ex.Message}");
+                        }
+                    }
+                }
+            }
+
+            return htmlBody;
+        }
+
+        static string DecodeEmailBody(string rawBody, string charset)
+        {
+            try
+            {
+                var encoding = Encoding.GetEncoding(charset);
+                return encoding.GetString(Encoding.Default.GetBytes(rawBody));
+            }
+            catch
+            {
+                return rawBody; // Return raw body if decoding fails
+            }
+        }
     }
 }
