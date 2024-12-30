@@ -1,27 +1,16 @@
+﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.12.35527.113
-MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EML2PDF", "EML2PDF.csproj", "{856832F7-419A-485F-BA68-63CA2134E59B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EML2PDF", "EML2PDF\EML2PDF.csproj", "{8FF1B81C-3E09-438C-B66C-2065AA5C2751}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
-		Debug|x64 = Debug|x64
 		Release|Any CPU = Release|Any CPU
-		Release|x64 = Release|x64
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{856832F7-419A-485F-BA68-63CA2134E59B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{856832F7-419A-485F-BA68-63CA2134E59B}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{856832F7-419A-485F-BA68-63CA2134E59B}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{856832F7-419A-485F-BA68-63CA2134E59B}.Debug|x64.Build.0 = Debug|Any CPU
-		{856832F7-419A-485F-BA68-63CA2134E59B}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{856832F7-419A-485F-BA68-63CA2134E59B}.Release|Any CPU.Build.0 = Release|Any CPU
-		{856832F7-419A-485F-BA68-63CA2134E59B}.Release|x64.ActiveCfg = Release|Any CPU
-		{856832F7-419A-485F-BA68-63CA2134E59B}.Release|x64.Build.0 = Release|Any CPU
-	EndGlobalSection
-	GlobalSection(SolutionProperties) = preSolution
-		HideSolutionNode = FALSE
+		{8FF1B81C-3E09-438C-B66C-2065AA5C2751}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8FF1B81C-3E09-438C-B66C-2065AA5C2751}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8FF1B81C-3E09-438C-B66C-2065AA5C2751}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8FF1B81C-3E09-438C-B66C-2065AA5C2751}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
