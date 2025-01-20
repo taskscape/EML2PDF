@@ -34,6 +34,11 @@ internal static class Program
             try
             {
                 string outputFilePath = Path.ChangeExtension(emlFilePath, ".pdf");
+                if (File.Exists(outputFilePath))
+                {
+                    Console.WriteLine($"File {outputFilePath} already exists.");
+                    return 0;
+                }
                 await SaveHtmlToPdf(htmlContent, outputFilePath);
                 Console.WriteLine("Rendering .eml file to PDF completed.");
             }
