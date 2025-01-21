@@ -1,14 +1,37 @@
-﻿using System.Text;
+﻿using System.Diagnostics;
+using System.Text;
+using Microsoft.Extensions.Configuration;
 using MimeKit;
 using PuppeteerSharp;
+using Serilog;
 
 namespace EML2PDF;
 
 internal static class Program
 {
+    private static bool DeleteAfterwards { get; set; }
+
     public static async Task<int> Main(string[] args)
     {
+        string? exePath = Process.GetCurrentProcess().MainModule?.FileName;
+        string realExeDirectory = Path.GetDirectoryName(exePath);
+        Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Debug()
+            .WriteTo.File(
+                path: $"{realExeDirectory}/logs/log-.txt",
+                rollingInterval: RollingInterval.Day,
+                retainedFileCountLimit: 7,
+                outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}"
+            )
+            .CreateLogger();
+        
+        IConfiguration config = new ConfigurationBuilder()
+            .SetBasePath(realExeDirectory)
+            .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+            .Build();
+        
         string? emlFilePath;
+        DeleteAfterwards = bool.Parse(config["DeleteFileAfterProcessing"]);
             
         if (args.Length > 0)
         {
@@ -41,6 +64,16 @@ internal static class Program
                 }
                 await SaveHtmlToPdf(htmlContent, outputFilePath);
                 Console.WriteLine("Rendering .eml file to PDF completed.");
+                if (DeleteAfterwards)
+                {
+                    File.Delete(emlFilePath);
+                }
+                else
+                {
+                    File.Move(emlFilePath, Path.Combine(
+                        Path.GetDirectoryName(emlFilePath),
+                        $"{DateTime.UtcNow:yyyyMMdd HHmm}_{Path.GetFileName(emlFilePath)}.bak"));
+                }
             }
             catch (Exception ex)
             {
