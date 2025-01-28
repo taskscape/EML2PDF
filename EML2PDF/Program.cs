@@ -10,12 +10,25 @@ namespace EML2PDF;
 internal static class Program
 {
     private static bool DeleteAfterwards { get; set; }
+    private static string SeqAppName { get; set; }
+    private static string SeqAddress { get; set; }
 
     public static async Task<int> Main(string[] args)
     {
         string? exePath = Process.GetCurrentProcess().MainModule?.FileName;
         string realExeDirectory = Path.GetDirectoryName(exePath);
+        
+        IConfiguration config = new ConfigurationBuilder()
+            .SetBasePath(realExeDirectory)
+            .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+            .Build();
+        
+        SeqAddress = config["Seq:ServerAddress"] ?? string.Empty;
+        SeqAppName = config["Seq:AppName"] ?? string.Empty;
+        DeleteAfterwards = bool.Parse(config["DeleteFileAfterProcessing"]);
+        
         Log.Logger = new LoggerConfiguration()
+            .Enrich.WithProperty("Application", SeqAppName)
             .MinimumLevel.Debug()
             .WriteTo.File(
                 path: $"{realExeDirectory}/logs/log-.txt",
@@ -23,34 +36,36 @@ internal static class Program
                 retainedFileCountLimit: 7,
                 outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}"
             )
+            .WriteTo.Seq(SeqAddress)
             .CreateLogger();
         
-        IConfiguration config = new ConfigurationBuilder()
-            .SetBasePath(realExeDirectory)
-            .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-            .Build();
+        Log.Information("Program start: EML2PDF conversion");
+        Log.Debug("Executable directory: {realExeDirectory}", realExeDirectory);
         
         string? emlFilePath;
-        DeleteAfterwards = bool.Parse(config["DeleteFileAfterProcessing"]);
             
         if (args.Length > 0)
         {
             emlFilePath = args[0].Trim().Trim('"');
+            Log.Debug("Received EML file path from arguments: {emlFilePath}", emlFilePath);
         }
         else
         {
             Console.Write("Please enter the path to the EML file (you may include quotes if it has spaces): ");
             string userInput = Console.ReadLine() ?? string.Empty;
             emlFilePath = userInput.Trim().Trim('"');
+            Log.Debug("Received EML file path from console input: {emlFilePath}", emlFilePath);
         }
             
         if (string.IsNullOrWhiteSpace(emlFilePath) || !File.Exists(emlFilePath))
         {
+            Log.Warning("Invalid file path: {emlFilePath}", emlFilePath);
             Console.WriteLine($"Invalid file path: \"{emlFilePath}\"");
             return 1;
         }
             
         string htmlContent = ParseEmlToHtml(emlFilePath);
+        Log.Information("Parsed EML file to HTML successfully");
 
         if (!string.IsNullOrEmpty(htmlContent))
         {
@@ -59,34 +74,47 @@ internal static class Program
                 string outputFilePath = Path.ChangeExtension(emlFilePath, ".pdf");
                 if (File.Exists(outputFilePath))
                 {
+                    Log.Warning("Output file already exists: {outputFilePath}", outputFilePath);
                     Console.WriteLine($"File {outputFilePath} already exists.");
                     return 0;
                 }
+                Log.Debug("Starting PDF generation for {outputFilePath}", outputFilePath);
                 await SaveHtmlToPdf(htmlContent, outputFilePath);
+                Log.Information("PDF generated successfully: {outputFilePath}", outputFilePath);
+                Console.WriteLine("RET-OUTPUT: " + outputFilePath);
                 Console.WriteLine("Rendering .eml file to PDF completed.");
                 if (DeleteAfterwards)
                 {
+                    Log.Debug("DeleteAfterwards set to true, deleting {emlFilePath}", emlFilePath);
                     File.Delete(emlFilePath);
                 }
                 else
                 {
-                    File.Move(emlFilePath, Path.Combine(
+                    string newPath = Path.Combine(
                         Path.GetDirectoryName(emlFilePath),
-                        $"{DateTime.UtcNow:yyyyMMdd HHmm}_{Path.GetFileName(emlFilePath)}.bak"));
+                        $"{DateTime.UtcNow:yyyyMMdd HHmm}_{Path.GetFileName(emlFilePath)}.bak");
+                    Log.Debug("Moving original EML file to backup: {newPath}", newPath);
+                    File.Move(emlFilePath, newPath);
                 }
             }
             catch (Exception ex)
             {
+                Log.Error(ex, "Error while saving HTML to PDF");
                 Console.WriteLine($"Error while saving HTML to PDF: {ex.Message}");
+                await Log.CloseAndFlushAsync();
                 return 1;
             }
         }
         else
         {
+            Log.Error("Failed to parse .eml file: HTML content is empty");
             Console.WriteLine("Failed to parse .eml file.");
+            await Log.CloseAndFlushAsync();
             return 1;
         }
             
+        Log.Information("Program completed successfully");
+        await Log.CloseAndFlushAsync();
         return 0;
     }
 
@@ -95,6 +123,7 @@ internal static class Program
     /// </summary>
     private static string ParseEmlToHtml(string emlFilePath)
     {
+        Log.Debug("Parsing EML file: {emlFilePath}", emlFilePath);
         MimeMessage message = MimeMessage.Load(emlFilePath);
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
             
@@ -104,11 +133,13 @@ internal static class Program
 
         if (htmlPart != null)
         {
+            Log.Debug("Found HTML part in EML file");
             string htmlBody = DecodeEmailBody(htmlPart);
             htmlBody = ReplaceInlineImagesWithBase64(htmlBody, message.BodyParts);
             return htmlBody;
         }
             
+        Log.Debug("No HTML part found, returning text body as <pre>");
         return $"<pre>{DecodeEmailBody(message.TextBody ?? string.Empty, "utf-8")}</pre>";
     }
 
@@ -118,6 +149,7 @@ internal static class Program
     /// </summary>
     private static async Task SaveHtmlToPdf(string htmlContent, string outputPath)
     {
+        Log.Debug("SaveHtmlToPdf called with outputPath: {outputPath}", outputPath);
         if (string.IsNullOrWhiteSpace(htmlContent))
             throw new ArgumentException("HTML content cannot be null or empty.", nameof(htmlContent));
 
@@ -125,11 +157,14 @@ internal static class Program
             throw new ArgumentException("Output path cannot be null or empty.", nameof(outputPath));
             
         await new BrowserFetcher().DownloadAsync();
+        Log.Debug("Downloaded browser");
         await using IBrowser browser = await Puppeteer.LaunchAsync(new LaunchOptions { Headless = true });
         await using IPage page = await browser.NewPageAsync();
+        Log.Debug("Browser launched and new page created");
         await page.SetContentAsync(htmlContent);
             
         int bodyHeight = await page.EvaluateExpressionAsync<int>("document.body.scrollHeight");
+        Log.Debug("Measured body height: {bodyHeight}", bodyHeight);
         await page.PdfAsync(outputPath, new PdfOptions
         {
             PrintBackground = true,
@@ -137,7 +172,9 @@ internal static class Program
             Height = $"{bodyHeight}px"
         });
         
+        Log.Information("PDF file created at {outputPath}", outputPath);
         await browser.CloseAsync();
+        Log.Debug("Browser closed");
     }
 
     /// <summary>
@@ -145,6 +182,7 @@ internal static class Program
     /// </summary>
     private static string DecodeEmailBody(TextPart textPart)
     {
+        Log.Debug("Decoding TextPart with charset: {charset}", textPart.ContentType.Charset);
         string charset = textPart.ContentType.Charset ?? "utf-8";
 
         using MemoryStream memoryStream = new();
@@ -154,11 +192,12 @@ internal static class Program
         try
         {
             Encoding encoding = Encoding.GetEncoding(charset);
+            Log.Debug("Decoded using {charset}", charset);
             return encoding.GetString(rawBytes);
         }
         catch
         {
-            Console.WriteLine($"Warning: Failed to decode using charset {charset}. Falling back to ISO-8859-1.");
+            Log.Warning("Failed to decode using charset {charset}. Falling back to ISO-8859-1.", charset);
             return Encoding.GetEncoding("ISO-8859-1").GetString(rawBytes);
         }
     }
@@ -168,6 +207,7 @@ internal static class Program
     /// </summary>
     private static string DecodeEmailBody(string rawBody, string charset)
     {
+        Log.Debug("Decoding raw string body with charset: {charset}", charset);
         try
         {
             Encoding encoding = Encoding.GetEncoding(charset);
@@ -175,6 +215,7 @@ internal static class Program
         }
         catch
         {
+            Log.Warning("Failed to decode raw body using charset {charset}. Returning raw body.", charset);
             return rawBody;
         }
     }
@@ -186,6 +227,7 @@ internal static class Program
         string htmlBody,
         IEnumerable<MimeEntity> bodyParts)
     {
+        Log.Debug("Replacing inline images with Base64 in HTML body");
         foreach (MimeEntity part in bodyParts)
         {
             if (part is MimePart mimePart
@@ -193,7 +235,10 @@ internal static class Program
             {
                 string contentId = mimePart.ContentId?.Trim('<', '>');
                 if (string.IsNullOrEmpty(contentId))
+                {
+                    Log.Debug("Skipping image with empty Content-ID");
                     continue;
+                }
 
                 using MemoryStream memStream = new MemoryStream();
                 mimePart.Content.DecodeTo(memStream);
@@ -204,6 +249,7 @@ internal static class Program
                 string dataUri = $"data:{mime};base64,{base64Data}";
                     
                 htmlBody = htmlBody.Replace($"cid:{contentId}", dataUri);
+                Log.Debug("Replaced inline image with CID: {contentId}", contentId);
             }
         }
 
