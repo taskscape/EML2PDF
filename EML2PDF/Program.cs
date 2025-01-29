@@ -71,7 +71,7 @@ internal static class Program
         {
             try
             {
-                string outputFilePath = Path.ChangeExtension(emlFilePath, ".pdf");
+                string outputFilePath = Path.ChangeExtension(emlFilePath, ".eml.pdf");
                 if (File.Exists(outputFilePath))
                 {
                     Log.Warning("Output file already exists: {outputFilePath}", outputFilePath);
