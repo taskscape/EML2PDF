@@ -65,7 +65,7 @@ internal static class Program
         }
             
         string htmlContent = ParseEmlToHtml(emlFilePath);
-        Log.Information("Parsed EML file to HTML successfully");
+        Log.Information("Parsed EML file to HTML successfully. File: {file}", emlFilePath);
 
         if (!string.IsNullOrEmpty(htmlContent))
         {
@@ -78,7 +78,7 @@ internal static class Program
                     Console.WriteLine($"File {outputFilePath} already exists.");
                     return 0;
                 }
-                Log.Debug("Starting PDF generation for {outputFilePath}", outputFilePath);
+                Log.Information("Starting PDF generation for {outputFilePath}", outputFilePath);
                 await SaveHtmlToPdf(htmlContent, outputFilePath);
                 Log.Information("PDF generated successfully: {outputFilePath}", outputFilePath);
                 Console.WriteLine("RET-OUTPUT: " + outputFilePath);
@@ -99,7 +99,7 @@ internal static class Program
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "Error while saving HTML to PDF");
+                Log.Error(ex, "Error while saving HTML to PDF. File: {file}", emlFilePath);
                 Console.WriteLine($"Error while saving HTML to PDF: {ex.Message}");
                 await Log.CloseAndFlushAsync();
                 return 1;
@@ -107,13 +107,13 @@ internal static class Program
         }
         else
         {
-            Log.Error("Failed to parse .eml file: HTML content is empty");
+            Log.Error("Failed to parse .eml file: HTML content is empty. File: {file}", emlFilePath);
             Console.WriteLine("Failed to parse .eml file.");
             await Log.CloseAndFlushAsync();
             return 1;
         }
             
-        Log.Information("Program completed successfully");
+        Log.Information("Program completed successfully. File: {file}", emlFilePath);
         await Log.CloseAndFlushAsync();
         return 0;
     }
@@ -133,13 +133,13 @@ internal static class Program
 
         if (htmlPart != null)
         {
-            Log.Debug("Found HTML part in EML file");
+            Log.Debug("Found HTML part in EML file. File: {file}", emlFilePath);
             string htmlBody = DecodeEmailBody(htmlPart);
             htmlBody = ReplaceInlineImagesWithBase64(htmlBody, message.BodyParts);
             return htmlBody;
         }
             
-        Log.Debug("No HTML part found, returning text body as <pre>");
+        Log.Debug("No HTML part found, returning text body as <pre>. File: {file}", emlFilePath);
         return $"<pre>{DecodeEmailBody(message.TextBody ?? string.Empty, "utf-8")}</pre>";
     }
 
