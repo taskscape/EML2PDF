@@ -158,7 +158,11 @@ internal static class Program
             
         await new BrowserFetcher().DownloadAsync();
         Log.Debug("Downloaded browser");
-        await using IBrowser browser = await Puppeteer.LaunchAsync(new LaunchOptions { Headless = true });
+        await using IBrowser browser = await Puppeteer.LaunchAsync(new LaunchOptions
+        {
+            Headless = true,
+            Args = new[] { "--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu" }
+        });
         await using IPage page = await browser.NewPageAsync();
         Log.Debug("Browser launched and new page created");
         await page.SetContentAsync(htmlContent);
