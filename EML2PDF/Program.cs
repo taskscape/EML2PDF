@@ -158,34 +158,23 @@ internal static class Program
             
         await new BrowserFetcher().DownloadAsync();
         Log.Debug("Downloaded browser");
-
-        await using IBrowser browser = await Puppeteer.LaunchAsync(new LaunchOptions { Headless = false });
-        try
+        await using IBrowser browser = await Puppeteer.LaunchAsync(new LaunchOptions { Headless = true });
+        await using IPage page = await browser.NewPageAsync();
+        Log.Debug("Browser launched and new page created");
+        await page.SetContentAsync(htmlContent);
+            
+        int bodyHeight = await page.EvaluateExpressionAsync<int>("document.body.scrollHeight");
+        Log.Debug("Measured body height: {bodyHeight}", bodyHeight);
+        await page.PdfAsync(outputPath, new PdfOptions
         {
-            await using IPage page = await browser.NewPageAsync();
-            Log.Debug("Browser launched and new page created");
-            await page.SetContentAsync(htmlContent);
-
-            int bodyHeight = await page.EvaluateExpressionAsync<int>("document.body.scrollHeight");
-            Log.Debug("Measured body height: {bodyHeight}", bodyHeight);
-            await page.PdfAsync(outputPath, new PdfOptions
-            {
-                PrintBackground = true,
-                Width = "8.5in",
-                Height = $"{bodyHeight}px"
-            });
-
-            Log.Information("PDF file created at {outputPath}", outputPath);
-        }
-        catch (Exception)
-        {
-            throw;
-        }
-        finally
-        {
-            await browser.CloseAsync();
-            Log.Debug("Browser closed");
-        }
+            PrintBackground = true,
+            Width = "8.5in",
+            Height = $"{bodyHeight}px"
+        });
+        
+        Log.Information("PDF file created at {outputPath}", outputPath);
+        await browser.CloseAsync();
+        Log.Debug("Browser closed");
     }
 
     /// <summary>
