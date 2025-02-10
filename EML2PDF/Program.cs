@@ -68,31 +68,28 @@ internal static class Program
         
         if (GetPDFFromAttachments)
         {
-            MimeMessage message = await MimeMessage.LoadAsync(emlFilePath);
-            MimePart? pdfAttachment = message.Attachments
-                .OfType<MimePart>()
-                .FirstOrDefault(a => a.FileName != null &&
-                                     a.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase));
-            if (pdfAttachment != null)
+            MimeMessage outerMessage = await MimeMessage.LoadAsync(emlFilePath);
+            (MimePart? deepestPdf, int pdfDepth) = GetDeepestNestedPdf(outerMessage);
+            if (deepestPdf != null)
             {
                 string outputFilePath = Path.ChangeExtension(emlFilePath, ".eml.pdf");
                 if (File.Exists(outputFilePath))
                 {
-                    Log.Warning("Output file already exists: {outputFilePath}", outputFilePath);
+                    Log.Warning("Output file already exists: {outputFilePath} for input file: {emlFilePath}", outputFilePath, emlFilePath);
                     Console.WriteLine($"File {outputFilePath} already exists.");
                     return 0;
                 }
-                Log.Information("Saving PDF attachment to {outputFilePath}", outputFilePath);
+                Log.Information("Saving PDF attachment from nested attachment to {outputFilePath} for input file: {emlFilePath}", outputFilePath, emlFilePath);
                 await using (FileStream stream = File.Create(outputFilePath))
                 {
-                    await pdfAttachment.Content.DecodeToAsync(stream);
+                    await deepestPdf.Content.DecodeToAsync(stream);
                 }
-                Log.Information("PDF attachment saved successfully: {outputFilePath}", outputFilePath);
+                Log.Information("PDF attachment saved successfully: {outputFilePath} for input file: {emlFilePath}", outputFilePath, emlFilePath);
                 Console.WriteLine("RET-OUTPUT: " + outputFilePath);
                 Console.WriteLine("PDF attachment extraction completed.");
                 if (DeleteAfterwards)
                 {
-                    Log.Debug("DeleteAfterwards set to true, deleting {emlFilePath}", emlFilePath);
+                    Log.Debug("DeleteAfterwards set to true, deleting input file: {emlFilePath}", emlFilePath);
                     File.Delete(emlFilePath);
                 }
                 else
@@ -100,26 +97,25 @@ internal static class Program
                     string newPath = Path.Combine(
                         Path.GetDirectoryName(emlFilePath),
                         $"{DateTime.UtcNow:yyyyMMdd HHmm}_{Path.GetFileName(emlFilePath)}.bak");
-                    Log.Debug("Moving original EML file to backup: {newPath}", newPath);
+                    Log.Debug("Moving original EML file to backup: {newPath} for input file: {emlFilePath}", newPath, emlFilePath);
                     File.Move(emlFilePath, newPath);
                 }
                 await Log.CloseAndFlushAsync();
                 return 0;
             }
-
-            Log.Information("GetPDFFromAttachments is true, but no PDF attachment was found. Proceeding with HTML conversion.");
+            Log.Information("GetPDFFromAttachments is true, but no PDF attachment was found for input file: {emlFilePath}. Proceeding with HTML conversion.", emlFilePath);
         }
         
-        MimeMessage outerMessage = await MimeMessage.LoadAsync(emlFilePath);
-        (MimeMessage deepestMessage, int depth) = GetDeepestNestedEml(outerMessage);
-        MimeMessage messageToConvert = depth > 0 ? deepestMessage : outerMessage;
+        MimeMessage outerMsg = await MimeMessage.LoadAsync(emlFilePath);
+        (MimeMessage deepestMessage, int depth) = GetDeepestNestedEml(outerMsg);
+        MimeMessage messageToConvert = depth > 0 ? deepestMessage : outerMsg;
         if (depth > 0)
         {
-            Log.Information("Found nested EML attachment(s). Using the most deeply nested EML for conversion.");
+            Log.Information("Found nested EML attachment(s) in input file: {emlFilePath}. Using the most deeply nested EML for conversion.", emlFilePath);
         }
-        
+
         string htmlContent = ParseMimeMessageToHtml(messageToConvert);
-        Log.Information("Parsed EML file to HTML successfully.");
+        Log.Information("Parsed EML file to HTML successfully for input file: {emlFilePath}", emlFilePath);
 
         if (!string.IsNullOrEmpty(htmlContent))
         {
@@ -128,18 +124,18 @@ internal static class Program
                 string outputFilePath = Path.ChangeExtension(emlFilePath, ".eml.pdf");
                 if (File.Exists(outputFilePath))
                 {
-                    Log.Warning("Output file already exists: {outputFilePath}", outputFilePath);
+                    Log.Warning("Output file already exists: {outputFilePath} for input file: {emlFilePath}", outputFilePath, emlFilePath);
                     Console.WriteLine($"File {outputFilePath} already exists.");
                     return 0;
                 }
-                Log.Information("Starting PDF generation for {outputFilePath}", outputFilePath);
+                Log.Information("Starting PDF generation for {outputFilePath} for input file: {emlFilePath}", outputFilePath, emlFilePath);
                 await SaveHtmlToPdf(htmlContent, outputFilePath);
-                Log.Information("PDF generated successfully: {outputFilePath}", outputFilePath);
+                Log.Information("PDF generated successfully: {outputFilePath} for input file: {emlFilePath}", outputFilePath, emlFilePath);
                 Console.WriteLine("RET-OUTPUT: " + outputFilePath);
                 Console.WriteLine("Rendering .eml file to PDF completed.");
                 if (DeleteAfterwards)
                 {
-                    Log.Debug("DeleteAfterwards set to true, deleting {emlFilePath}", emlFilePath);
+                    Log.Debug("DeleteAfterwards set to true, deleting input file: {emlFilePath}", emlFilePath);
                     File.Delete(emlFilePath);
                 }
                 else
@@ -147,13 +143,13 @@ internal static class Program
                     string newPath = Path.Combine(
                         Path.GetDirectoryName(emlFilePath),
                         $"{DateTime.UtcNow:yyyyMMdd HHmm}_{Path.GetFileName(emlFilePath)}.bak");
-                    Log.Debug("Moving original EML file to backup: {newPath}", newPath);
+                    Log.Debug("Moving original EML file to backup: {newPath} for input file: {emlFilePath}", newPath, emlFilePath);
                     File.Move(emlFilePath, newPath);
                 }
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "Error while saving HTML to PDF. File: {file}", emlFilePath);
+                Log.Error(ex, "Error while saving HTML to PDF for input file: {emlFilePath}", emlFilePath);
                 Console.WriteLine($"Error while saving HTML to PDF: {ex.Message}");
                 await Log.CloseAndFlushAsync();
                 return 1;
@@ -161,13 +157,13 @@ internal static class Program
         }
         else
         {
-            Log.Error("Failed to parse .eml file: HTML content is empty. File: {file}", emlFilePath);
+            Log.Error("Failed to parse .eml file: HTML content is empty for input file: {emlFilePath}", emlFilePath);
             Console.WriteLine("Failed to parse .eml file.");
             await Log.CloseAndFlushAsync();
             return 1;
         }
 
-        Log.Information("Program completed successfully. File: {file}", emlFilePath);
+        Log.Information("Program completed successfully for input file: {emlFilePath}", emlFilePath);
         await Log.CloseAndFlushAsync();
         return 0;
     }
@@ -189,9 +185,11 @@ internal static class Program
                 {
                     (MimeMessage nestedMessage, int depth) = GetDeepestNestedEml(mp.Message);
                     int candidateDepth = depth + 1;
-                    if (candidateDepth <= bestDepth) continue;
-                    bestMessage = nestedMessage;
-                    bestDepth = candidateDepth;
+                    if (candidateDepth > bestDepth)
+                    {
+                        bestMessage = nestedMessage;
+                        bestDepth = candidateDepth;
+                    }
                     break;
                 }
                 case MimePart part when
@@ -204,9 +202,11 @@ internal static class Program
                     MimeMessage nestedMessage = MimeMessage.Load(ms);
                     (MimeMessage candidateMessage, int depth) = GetDeepestNestedEml(nestedMessage);
                     int candidateDepth = depth + 1;
-                    if (candidateDepth <= bestDepth) continue;
-                    bestMessage = candidateMessage;
-                    bestDepth = candidateDepth;
+                    if (candidateDepth > bestDepth)
+                    {
+                        bestMessage = candidateMessage;
+                        bestDepth = candidateDepth;
+                    }
                     break;
                 }
             }
@@ -216,11 +216,53 @@ internal static class Program
     }
 
     /// <summary>
+    /// Recursively traverses the attachments in the given MimeMessage and returns the deepest nested PDF attachment.
+    /// Returns a tuple containing the PDF (or null if none found) and its depth (0 means no PDF was found).
+    /// </summary>
+    private static (MimePart? pdf, int depth) GetDeepestNestedPdf(MimeMessage message)
+    {
+        MimePart? bestPdf = null;
+        int bestDepth = 0;
+
+        foreach (MimeEntity? attachment in message.Attachments)
+        {
+            switch (attachment)
+            {
+                case MessagePart mp:
+                {
+                    (MimePart? nestedPdf, int depth) = GetDeepestNestedPdf(mp.Message);
+                    int candidateDepth = depth + 1;
+                    if (nestedPdf != null && candidateDepth > bestDepth)
+                    {
+                        bestPdf = nestedPdf;
+                        bestDepth = candidateDepth;
+                    }
+                    break;
+                }
+                case MimePart part when
+                    !string.IsNullOrEmpty(part.FileName) &&
+                    part.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase):
+                {
+                    int candidateDepth = 1; // Direct attachment
+                    if (candidateDepth > bestDepth)
+                    {
+                        bestPdf = part;
+                        bestDepth = candidateDepth;
+                    }
+                    break;
+                }
+            }
+        }
+
+        return (bestPdf, bestDepth);
+    }
+
+    /// <summary>
     /// Converts a preloaded MimeMessage to HTML.
     /// </summary>
     private static string ParseMimeMessageToHtml(MimeMessage message)
     {
-        Log.Debug("Parsing MimeMessage to HTML");
+        Log.Debug("Parsing MimeMessage to HTML for input file.");
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
         TextPart? htmlPart = message.BodyParts
@@ -229,13 +271,13 @@ internal static class Program
 
         if (htmlPart != null)
         {
-            Log.Debug("Found HTML part in MimeMessage.");
+            Log.Debug("Found HTML part in MimeMessage for input file.");
             string htmlBody = DecodeEmailBody(htmlPart);
             htmlBody = ReplaceInlineImagesWithBase64(htmlBody, message.BodyParts);
             return htmlBody;
         }
 
-        Log.Debug("No HTML part found in MimeMessage, returning text body wrapped in <pre>.");
+        Log.Debug("No HTML part found in MimeMessage for input file, returning text body wrapped in <pre>.");
         return $"<pre>{DecodeEmailBody(message.TextBody ?? string.Empty, "utf-8")}</pre>";
     }
 
@@ -253,14 +295,14 @@ internal static class Program
             throw new ArgumentException("Output path cannot be null or empty.", nameof(outputPath));
 
         await new BrowserFetcher().DownloadAsync();
-        Log.Debug("Downloaded browser");
+        Log.Debug("Downloaded browser for PDF conversion.");
         await using IBrowser browser = await Puppeteer.LaunchAsync(new LaunchOptions
         {
             Headless = true,
             Args = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"]
         });
         await using IPage page = await browser.NewPageAsync();
-        Log.Debug("Browser launched and new page created");
+        Log.Debug("Browser launched and new page created for PDF conversion.");
         await page.SetContentAsync(htmlContent);
 
         int bodyHeight = await page.EvaluateExpressionAsync<int>("document.body.scrollHeight");
@@ -274,7 +316,7 @@ internal static class Program
 
         Log.Information("PDF file created at {outputPath}", outputPath);
         await browser.CloseAsync();
-        Log.Debug("Browser closed");
+        Log.Debug("Browser closed after PDF conversion.");
     }
 
     /// <summary>
@@ -323,11 +365,9 @@ internal static class Program
     /// <summary>
     /// Converts inline CID images to Base64 data URIs in the HTML body.
     /// </summary>
-    private static string ReplaceInlineImagesWithBase64(
-        string htmlBody,
-        IEnumerable<MimeEntity> bodyParts)
+    private static string ReplaceInlineImagesWithBase64(string htmlBody, IEnumerable<MimeEntity> bodyParts)
     {
-        Log.Debug("Replacing inline images with Base64 in HTML body");
+        Log.Debug("Replacing inline images with Base64 in HTML body for input file.");
         foreach (MimeEntity part in bodyParts)
         {
             if (part is MimePart mimePart &&
@@ -336,7 +376,7 @@ internal static class Program
                 string contentId = mimePart.ContentId?.Trim('<', '>') ?? string.Empty;
                 if (string.IsNullOrEmpty(contentId))
                 {
-                    Log.Debug("Skipping image with empty Content-ID");
+                    Log.Debug("Skipping image with empty Content-ID for input file.");
                     continue;
                 }
 
@@ -349,7 +389,7 @@ internal static class Program
                 string dataUri = $"data:{mime};base64,{base64Data}";
 
                 htmlBody = htmlBody.Replace($"cid:{contentId}", dataUri);
-                Log.Debug("Replaced inline image with CID: {contentId}", contentId);
+                Log.Debug("Replaced inline image with CID: {contentId} for input file.", contentId);
             }
         }
 
