@@ -10,6 +10,7 @@ namespace EML2PDF;
 internal static class Program
 {
     private static bool DeleteAfterwards { get; set; }
+    private static bool GetPDFFromAttachments { get; set; }
     private static string SeqAppName { get; set; }
     private static string SeqAddress { get; set; }
 
@@ -25,7 +26,8 @@ internal static class Program
         
         SeqAddress = config["Seq:ServerAddress"] ?? string.Empty;
         SeqAppName = config["Seq:AppName"] ?? string.Empty;
-        DeleteAfterwards = bool.Parse(config["DeleteFileAfterProcessing"]);
+        DeleteAfterwards = bool.Parse(config["DeleteFileAfterProcessing"] ?? "false");
+        GetPDFFromAttachments = bool.Parse(config["GetPDFFromAttachments"] ?? "false");
         
         Log.Logger = new LoggerConfiguration()
             .Enrich.WithProperty("Application", SeqAppName)
@@ -62,6 +64,49 @@ internal static class Program
             Log.Warning("Invalid file path: {emlFilePath}", emlFilePath);
             Console.WriteLine($"Invalid file path: \"{emlFilePath}\"");
             return 1;
+        }
+        
+        if (GetPDFFromAttachments)
+        {
+            MimeMessage message = await MimeMessage.LoadAsync(emlFilePath);
+            MimePart? pdfAttachment = message.Attachments
+                .OfType<MimePart>()
+                .FirstOrDefault(a => a.FileName != null && a.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase));
+            if (pdfAttachment != null)
+            {
+                string outputFilePath = Path.ChangeExtension(emlFilePath, ".eml.pdf");
+                if (File.Exists(outputFilePath))
+                {
+                    Log.Warning("Output file already exists: {outputFilePath}", outputFilePath);
+                    Console.WriteLine($"File {outputFilePath} already exists.");
+                    return 0;
+                }
+                Log.Information("Saving PDF attachment to {outputFilePath}", outputFilePath);
+                await using (FileStream stream = File.Create(outputFilePath))
+                {
+                    await pdfAttachment.Content.DecodeToAsync(stream);
+                }
+                Log.Information("PDF attachment saved successfully: {outputFilePath}", outputFilePath);
+                Console.WriteLine("RET-OUTPUT: " + outputFilePath);
+                Console.WriteLine("PDF attachment extraction completed.");
+                if (DeleteAfterwards)
+                {
+                    Log.Debug("DeleteAfterwards set to true, deleting {emlFilePath}", emlFilePath);
+                    File.Delete(emlFilePath);
+                }
+                else
+                {
+                    string newPath = Path.Combine(
+                        Path.GetDirectoryName(emlFilePath),
+                        $"{DateTime.UtcNow:yyyyMMdd HHmm}_{Path.GetFileName(emlFilePath)}.bak");
+                    Log.Debug("Moving original EML file to backup: {newPath}", newPath);
+                    File.Move(emlFilePath, newPath);
+                }
+                await Log.CloseAndFlushAsync();
+                return 0;
+            }
+
+            Log.Information("GetPDFFromAttachments is true, but no PDF attachment was found. Proceeding with HTML conversion.");
         }
             
         string htmlContent = ParseEmlToHtml(emlFilePath);
