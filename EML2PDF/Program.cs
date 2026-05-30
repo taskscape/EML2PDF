@@ -38,28 +38,95 @@ internal static partial class Program
             Log.Information("Program start: EML2PDF conversion");
             Log.Debug("Executable directory: {realExeDirectory}", realExeDirectory);
 
-            string? emlFilePath;
+            string? inputPath;
 
             if (args.Length > 0)
             {
-                emlFilePath = args[0].Trim().Trim('"');
-                Log.Debug("Received EML file path from arguments: {emlFilePath}", emlFilePath);
+                inputPath = args[0].Trim().Trim('"');
+                Log.Debug("Received input path from arguments: {inputPath}", inputPath);
             }
             else
             {
-                Console.Write("Please enter the path to the EML file (you may include quotes if it has spaces): ");
+                Console.Write("Please enter the path to an EML file or a directory (you may include quotes if it has spaces): ");
                 string userInput = Console.ReadLine() ?? string.Empty;
-                emlFilePath = userInput.Trim().Trim('"');
-                Log.Debug("Received EML file path from console input: {emlFilePath}", emlFilePath);
+                inputPath = userInput.Trim().Trim('"');
+                Log.Debug("Received input path from console input: {inputPath}", inputPath);
             }
 
-            if (string.IsNullOrWhiteSpace(emlFilePath) || !File.Exists(emlFilePath))
+            bool isDirectory = !string.IsNullOrWhiteSpace(inputPath) && Directory.Exists(inputPath);
+            bool isFile = !string.IsNullOrWhiteSpace(inputPath) && File.Exists(inputPath);
+
+            if (!isDirectory && !isFile)
             {
-                Log.Warning("Invalid file path: {emlFilePath}", emlFilePath);
-                Console.WriteLine($"Invalid file path: \"{emlFilePath}\"");
+                Log.Warning("Invalid input path (not an existing file or directory): {inputPath}", inputPath);
+                Console.WriteLine($"Invalid path: \"{inputPath}\"");
                 return 1;
             }
 
+            List<string> emlFiles;
+            string inputType;
+            if (isDirectory)
+            {
+                inputType = "directory";
+                emlFiles = Directory
+                    .EnumerateFiles(inputPath, "*.eml", SearchOption.TopDirectoryOnly)
+                    .OrderBy(static p => p, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                Log.Information("Processing directory {inputPath}. Found {count} .eml file(s).", inputPath, emlFiles.Count);
+                Console.WriteLine($"Found {emlFiles.Count} .eml file(s) in directory: {inputPath}");
+            }
+            else
+            {
+                inputType = "file";
+                emlFiles = [inputPath];
+            }
+
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            int processed = 0;
+            int succeeded = 0;
+            int failed = 0;
+
+            foreach (string emlFilePath in emlFiles)
+            {
+                processed++;
+                bool ok = await ProcessEmlFileAsync(emlFilePath);
+                if (ok)
+                {
+                    succeeded++;
+                }
+                else
+                {
+                    failed++;
+                }
+            }
+
+            stopwatch.Stop();
+
+            Log.Information(
+                "Processing summary: input {inputType} {inputPath} completed in {elapsed} ({elapsedMs} ms). " +
+                "Files processed: {processed}, succeeded: {succeeded}, failed: {failed}.",
+                inputType, inputPath, stopwatch.Elapsed, stopwatch.ElapsedMilliseconds, processed, succeeded, failed);
+            Console.WriteLine(
+                $"Done. Processed {processed} file(s) in {stopwatch.Elapsed}. Succeeded: {succeeded}, Failed: {failed}.");
+
+            return failed > 0 ? 1 : 0;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Unhandled fatal error");
+            Console.WriteLine($"Fatal error: {ex.Message}");
+            return 1;
+        }
+        finally
+        {
+            await Log.CloseAndFlushAsync();
+        }
+    }
+
+    private static async Task<bool> ProcessEmlFileAsync(string emlFilePath)
+    {
+        try
+        {
             MimeMessage outerMessage = await MimeMessage.LoadAsync(emlFilePath);
             (List<MimePart> pdfAttachments, int _) = GetDeepestNestedPdfs(outerMessage);
 
@@ -95,7 +162,7 @@ internal static partial class Program
                     $"{DateTime.UtcNow:yyyyMMddHHmmss} - {Path.GetFileName(emlFilePath)}.bak");
                 Log.Debug("Moving original EML file to backup: {backupPath1} for input file: {emlFilePath}", backupPath1, emlFilePath);
                 File.Move(emlFilePath, backupPath1);
-                return 0;
+                return true;
             }
 
             Log.Information("No PDF attachments found in input file: {emlFilePath}. Proceeding with HTML body conversion.", emlFilePath);
@@ -114,7 +181,7 @@ internal static partial class Program
             {
                 Log.Error("Failed to parse .eml file: HTML content is empty for input file: {emlFilePath}", emlFilePath);
                 Console.WriteLine("Failed to parse .eml file.");
-                return 1;
+                return false;
             }
 
             string pdfOutputPath = Path.ChangeExtension(emlFilePath, ".eml.pdf");
@@ -122,7 +189,7 @@ internal static partial class Program
             {
                 Log.Warning("Output file already exists: {pdfOutputPath} for input file: {emlFilePath}", pdfOutputPath, emlFilePath);
                 Console.WriteLine($"File {pdfOutputPath} already exists.");
-                return 0;
+                return true;
             }
             Log.Information("Starting PDF generation for {pdfOutputPath} for input file: {emlFilePath}", pdfOutputPath, emlFilePath);
             using CancellationTokenSource renderCts = new(TimeSpan.FromMinutes(10));
@@ -137,17 +204,13 @@ internal static partial class Program
             File.Move(emlFilePath, backupPath2);
 
             Log.Information("Program completed successfully for input file: {emlFilePath}", emlFilePath);
-            return 0;
+            return true;
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Unhandled fatal error");
-            Console.WriteLine($"Fatal error: {ex.Message}");
-            return 1;
-        }
-        finally
-        {
-            await Log.CloseAndFlushAsync();
+            Log.Error(ex, "Failed to process input file: {emlFilePath}", emlFilePath);
+            Console.WriteLine($"Error processing \"{emlFilePath}\": {ex.Message}");
+            return false;
         }
     }
 }

@@ -14,12 +14,15 @@ At runtime, the app:
 3. Reads the input path either:
 	- from the first CLI argument, or
 	- from console prompt input.
-4. Validates that the file exists.
-5. Searches for PDF attachments at the deepest nesting level:
+4. Validates that the path is an existing file or directory:
+	- If it is a single `.eml` file, that file is processed.
+	- If it is a directory, every top-level `*.eml` file in it is processed (non-recursive). A failure on one file is logged and counted but does not stop the rest of the batch.
+5. For each file, searches for PDF attachments at the deepest nesting level:
 	- If any PDF attachments are found, all of them are extracted and saved to the same folder, using each attachment's original filename.
 	- If no PDF attachments are found, the deepest nested `.eml` body is rendered via headless Chromium (PuppeteerSharp) and exported to PDF as `<originalName>.eml.pdf`.
 6. Writes the output in the same folder as input using `<originalName>.eml.pdf`.
 7. If successful, renames the source `.eml` to `<yyyyMMddHHmmss> - <name>.eml.bak` in the same folder (UTC timestamp, no spaces, seconds precision).
+8. When the run finishes, writes a summary log entry with the input type (file/directory), total elapsed processing time, and the number of files processed, succeeded, and failed.
 
 ## Usage
 
@@ -33,10 +36,16 @@ Run one of:
   EML2PDF.exe
   ```
 
-- Direct argument mode:
+- Direct argument mode (single file):
 
   ```bash
   EML2PDF.exe "C:\path\to\mail.eml"
+  ```
+
+- Direct argument mode (directory — processes every top-level `.eml` file):
+
+  ```bash
+  EML2PDF.exe "C:\path\to\folder"
   ```
 
 ## Configuration
@@ -60,9 +69,10 @@ Example:
 ## Output and Exit Codes
 
 - Success output: a line prefixed with `RET-OUTPUT: <pdfPath>`.
-- Exit code `0`: conversion/extraction succeeded (or all output files already existed).
 - When multiple PDF attachments are extracted, one `RET-OUTPUT:` line is printed per file.
-- Exit code `1`: invalid input path or runtime error.
+- On completion a summary line is printed to the console and logged, e.g. `Done. Processed 5 file(s) in 00:00:12.3456789. Succeeded: 4, Failed: 1.`
+- Exit code `0`: all processed files succeeded (or their output already existed).
+- Exit code `1`: invalid input path, at least one file failed, or a runtime error occurred.
 
 ## Known resilience gaps (current implementation)
 
