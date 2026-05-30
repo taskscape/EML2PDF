@@ -8,8 +8,9 @@ At runtime, the app:
 
 1. Loads settings from `appsettings.json` located next to the executable.
 2. Configures Serilog with:
-	- rolling local file logs (`logs/log-*.txt`)
-	- Seq sink (address from config)
+	- rolling local file logs (`logs/log-*.txt`, daily rolling, last 7 files retained)
+	- Seq sink (address and optional API key from config)
+	- logs are flushed via `Log.CloseAndFlushAsync()` in a `finally` block at the end of every run
 3. Reads the input path either:
 	- from the first CLI argument, or
 	- from console prompt input.
@@ -43,7 +44,7 @@ Run one of:
 `appsettings.json` keys currently used by the app:
 
 - `Seq:ServerAddress`: Seq endpoint URL.
-- `Seq:AppName`: value added as Serilog property.
+- `Seq:ApiKey`: API key used to authenticate with Seq. Leave empty to send events without authentication.
 
 Example:
 
@@ -51,7 +52,7 @@ Example:
 {
   "Seq": {
 	 "ServerAddress": "http://localhost:5341/",
-	 "AppName": "EML2PDF"
+	 "ApiKey": ""
   }
 }
 ```
